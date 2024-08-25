@@ -152,6 +152,38 @@ filters:
     url: https://winhelp2002.mvps.org/hosts.txt
     name: Mvps - 屏蔽美欧地区英文网站相关的广告
     id: 1677875728
+  - enabled: true
+    url: https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockdns.txt
+    name: adblockdns
+    id: 1724552011
+  - enabled: true
+    url: https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockfilters.txt
+    name: adblockfilters
+    id: 1724552012
+  - enabled: true
+    url: https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_2_Base/filter.txt
+    name: filter
+    id: 1724552013
+  - enabled: true
+    url: https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_224_Chinese/filter.txt
+    name: filter_224_Chinese
+    id: 1724552014
+  - enabled: true
+    url: https://raw.githubusercontent.com/xinggsf/Adblock-Plus-Rule/master/mv.txt
+    name: 乘风mv
+    id: 1724552015
+  - enabled: true
+    url: https://raw.githubusercontent.com/xinggsf/Adblock-Plus-Rule/master/rule.txt
+    name: 乘风rule
+    id: 1724552016
+  - enabled: true
+    url: https://hblock.molinero.dev/hosts_adblock.txt
+    name: hosts_adblock
+    id: 1724552017
+  - enabled: true
+    url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+    name: StevenBlack/hosts
+    id: 1724552018
 whitelist_filters:
   - enabled: true
     url: https://cdn.jsdelivr.net/gh/hl2guide/Filterlist-for-AdGuard@master/filter_whitelist.txt
