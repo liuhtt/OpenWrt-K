@@ -114,7 +114,7 @@ update_rule(){
         mkdir -p $TMPDIR/update/rule/adguardhome
         cd $TMPDIR/update/rule/adguardhome
         [[ -d $TMPDIR ]] && rm -rf $TMPDIR/update/rule/adguardhome/* || exit 1
-        curl -s -L --retry 6 --connect-timeout 20 "https://raw.githubusercontent.com/chenmozhijin/AdGuardHome-Rules/main/AdGuardHome-dnslist(by%20cmzj).yaml" -o "AdGuardHomednslist" || download_failed
+        curl -s -L --retry 6 --connect-timeout 20 "https://raw.githubusercontent.com/chenmozhijin/AdGuardHome-Rules/refs/heads/main/AdGuardHome-dnslist(by%20cmzj).yaml" -o "AdGuardHomednslist" || download_failed
         cat ./AdGuardHomednslist > /etc/AdGuardHome-dnslist"(by cmzj)".yaml
         /etc/init.d/AdGuardHome restart
         echo "更新adguardhome上游 DNS 服务器分流规则（/etc/AdGuardHome-dnslist(by cmzj).yaml)完成"
