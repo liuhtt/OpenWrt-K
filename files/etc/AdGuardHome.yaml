@@ -17,7 +17,7 @@ dns:
     - 0.0.0.0
   port: 1745
   anonymize_client_ip: false
-  ratelimit: 0
+  ratelimit: 20
   ratelimit_subnet_len_ipv4: 24
   ratelimit_subnet_len_ipv6: 56
   ratelimit_whitelist: []
@@ -104,10 +104,6 @@ filters:
     name: AdGuard DNS filter
     id: 1628750870
   - enabled: true
-    url: https://anti-ad.net/easylist.txt
-    name: anti-AD
-    id: 1628750871
-  - enabled: true
     url: https://easylist-downloads.adblockplus.org/easylist.txt
     name: EasyList
     id: 1677875715
@@ -147,6 +143,54 @@ filters:
     url: https://winhelp2002.mvps.org/hosts.txt
     name: Mvps - 屏蔽美欧地区英文网站相关的广告
     id: 1677875728
+  - enabled: true
+    url: https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockdns.txt
+    name: adblockdns
+    id: 1724552011
+  - enabled: true
+    url: https://raw.githubusercontent.com/217heidai/adblockfilters/main/rules/adblockfilters.txt
+    name: adblockfilters
+    id: 1724552012
+  - enabled: true
+    url: https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_2_Base/filter.txt
+    name: filter
+    id: 1724552013
+  - enabled: true
+    url: https://raw.githubusercontent.com/AdguardTeam/FiltersRegistry/master/filters/filter_224_Chinese/filter.txt
+    name: filter_224_Chinese
+    id: 1724552014
+  - enabled: true
+    url: https://raw.githubusercontent.com/xinggsf/Adblock-Plus-Rule/master/mv.txt
+    name: 乘风mv
+    id: 1724552015
+  - enabled: true
+    url: https://raw.githubusercontent.com/xinggsf/Adblock-Plus-Rule/master/rule.txt
+    name: 乘风rule
+    id: 1724552016
+  - enabled: true
+    url: https://hblock.molinero.dev/hosts_adblock.txt
+    name: hosts_adblock
+    id: 1724552017
+  - enabled: true
+    url: https://raw.githubusercontent.com/StevenBlack/hosts/master/hosts
+    name: StevenBlack/hosts
+    id: 1724552018
+  - enabled: true
+    url: https://anti-ad.net/easylist.txt
+    name: anti-adeasylist
+    id: 1725094062
+  - enabled: true
+    url: https://anti-ad.net/adguard.txt
+    name: anti-ad_adguard
+    id: 1725102979
+  - enabled: true
+    url: https://raw.githubusercontent.com/8680/GOODBYEADS/master/data/rules/adblock.txt
+    name: GOODBYEADS_adblock
+    id: 1728558228
+  - enabled: true
+    url: https://raw.githubusercontent.com/8680/GOODBYEADS/master/data/rules/dns.txt
+    name: GOODBYEADS_dns
+    id: 1728558229
 whitelist_filters:
   - enabled: true
     url: https://cdn.jsdelivr.net/gh/hl2guide/Filterlist-for-AdGuard@master/filter_whitelist.txt
@@ -169,9 +213,9 @@ whitelist_filters:
     name: JamesDamp/Personal-Whitelist
     id: 1677875739
   - enabled: true
-    url: https://cdn.jsdelivr.net/gh/scarletbane/AdGuard-Home-Whitelist@main/whitelist.txt
-    name: scarletbane/AdGuard-Home-Whitelist
-    id: 1677875740
+    url: https://raw.githubusercontent.com/8680/GOODBYEADS/master/data/rules/allow.txt
+    name: GOODBYEADS——白名单
+    id: 1725102978
 user_rules: []
 dhcp:
   enabled: false
@@ -202,6 +246,7 @@ filtering:
     enabled: false
     bing: true
     duckduckgo: true
+    ecosia: true
     google: true
     pixabay: true
     yandex: true
@@ -210,6 +255,8 @@ filtering:
   parental_block_host: family-block.dns.adguard.com
   safebrowsing_block_host: standard-block.dns.adguard.com
   rewrites: []
+  safe_fs_patterns:
+    - /usr/bin/AdGuardHome/data/userfilters/*
   safebrowsing_cache_size: 1048576
   safesearch_cache_size: 1048576
   parental_cache_size: 1048576
@@ -241,4 +288,4 @@ os:
   group: ""
   user: ""
   rlimit_nofile: 0
-schema_version: 28
+schema_version: 29
