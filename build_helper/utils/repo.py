@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: MIT
 import contextlib
 import os
-import re
 from datetime import datetime, timedelta, timezone
 
 import github
@@ -34,14 +33,25 @@ def get_current_commit() -> str:
         head_commit = head_commit.raw.hex()
     return head_commit
 
+def get_artifact_run_id() -> int:
+    artifact_run_id = os.getenv("BUILD_HELPER_ARTIFACT_RUN_ID", "").strip()
+    if not artifact_run_id:
+        return context.run_id
+    try:
+        return int(artifact_run_id)
+    except ValueError as e:
+        msg = f"无效的artifact run id: {artifact_run_id}"
+        raise ValueError(msg) from e
+
 def dl_artifact(name: str, path: str) -> str:
+    artifact_run_id = get_artifact_run_id()
     for artifact in repo.get_artifacts():
-        if artifact.workflow_run.id == context.run_id and artifact.name == name:
+        if artifact.workflow_run.id == artifact_run_id and artifact.name == name:
             dl_url = artifact.archive_download_url
-            logger.debug(f'Downloading artifact {name} from {dl_url}')
+            logger.debug(f'Downloading artifact {name} from run {artifact_run_id}: {dl_url}')
             break
     else:
-        msg = f'Artifact {name} not found'
+        msg = f'Artifact {name} not found in run {artifact_run_id}'
         raise ValueError(msg)
     if not token:
         msg = "没有可用的token"
@@ -77,33 +87,7 @@ def get_release_suffix(cfg: dict) -> tuple[str, str]:
     tag_suffix = f"({cfg["target"]}-{cfg["subtarget"]})-({cfg["compile"]["openwrt_tag/branch"]})-{cfg["name"]}"
     return release_suffix, tag_suffix
 
-
-def parse_openwrt_branch_version(branch: str) -> tuple[int, int, int] | None:
-    match = re.match(r"^v?(?P<major>\d+)\.(?P<minor>\d+)(?:\.(?P<patch>\d+))?$", branch.strip())
-    if not match:
-        return None
-    return (
-        int(match.group("major")),
-        int(match.group("minor")),
-        int(match.group("patch") or 0),
-    )
-
-
-def get_package_manager_info(cfg: dict) -> dict[str, str]:
-    version = parse_openwrt_branch_version(cfg["compile"]["openwrt_tag/branch"])
-    if version is not None and version >= (25, 12, 0):
-        return {
-            "package_ext": ".apk",
-            "pkg_mgr": "apk",
-            "package_install_cmd": "apk add --allow-untrusted",
-        }
-    return {
-        "package_ext": ".ipk",
-        "pkg_mgr": "opkg",
-        "package_install_cmd": "opkg install",
-    }
-
-def new_release(cfg: dict, assets: list[str], body: str) -> None:
+def new_release(cfg: dict, assets: list[str], body: str, head_commit: str | None = None) -> None:
     release_suffix, tag_suffix = get_release_suffix(cfg)
     f_release_name = "v" + datetime.now(timezone(timedelta(hours=8))).strftime('%Y.%m.%d') + "-{n}" + release_suffix
     f_tag_name = "v" + datetime.now(timezone(timedelta(hours=8))).strftime('%Y.%m.%d') + "-{n}" + tag_suffix
@@ -119,7 +103,8 @@ def new_release(cfg: dict, assets: list[str], body: str) -> None:
             break
         i += 1
 
-    head_commit = get_current_commit()
+    if head_commit is None:
+        head_commit = get_current_commit()
 
     logger.info("创建新发布: %s", release_name)
     release = repo.create_git_tag_and_release(tag_name,

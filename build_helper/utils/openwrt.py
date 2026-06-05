@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 from typing import Literal
 
@@ -19,6 +20,43 @@ class OpenWrtBase:
     def __init__(self, path: str) -> None:
         self.path = path
         self.files = os.path.join(path, 'files')
+
+    def _run_logged(self, args: list[str]) -> tuple[int, list[str]]:
+        logger.debug("运行命令：%s", " ".join(args))
+        process = subprocess.Popen(args,
+                                   cwd=self.path,
+                                   stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT,
+                                   text=True,
+                                   bufsize=1)
+        tail: list[str] = []
+        assert process.stdout is not None
+        for line in process.stdout:
+            sys.stdout.write(line)
+            tail.append(line.rstrip("\n"))
+            if len(tail) > 500:
+                tail.pop(0)
+        process.wait()
+        return process.returncode, tail
+
+    @staticmethod
+    def _guess_failure_target(lines: list[str]) -> str | None:
+        explicit_patterns = (
+            r"ERROR:\s+(?P<target>\S+) failed to build\.",
+        )
+        fallback_patterns = (
+            r"make\[\d+\]: \*\*\* \[[^\]]*?(?P<target>(?:package|toolchain|tools|target)/[^\] :]+)[^\]]*\] Error",
+            r"Entering directory '.*/(?P<target>(?:package|toolchain|tools|target)/[^']+)'",
+        )
+        for line in reversed(lines):
+            for pattern in explicit_patterns:
+                if match := re.search(pattern, line):
+                    return match.group("target")
+        for line in reversed(lines):
+            for pattern in fallback_patterns:
+                if match := re.search(pattern, line):
+                    return match.group("target")
+        return None
 
     def get_arch(self) -> tuple[str | None, str | None]:
         arch = None
@@ -69,15 +107,18 @@ class OpenWrtBase:
             if not (cpu_count := os.cpu_count()):
                 cpu_count = 1
             args.append(f"-j{cpu_count + 1}")
-        logger.debug("运行命令：%s", " ".join(args))
-        result = subprocess.run(args, cwd=self.path)
-        if result.returncode != 0:
+        returncode, tail = self._run_logged(args)
+        if returncode != 0:
             if not debug:
                 logger.error("编译失败，尝试使用debug模式重新编译")
                 self.make(target, debug=True)
             else:
                 logger.error("编译失败，请检查错误信息")
-                raise subprocess.CalledProcessError(result.returncode, result.args, result.stdout, result.stderr)
+                if failure_target := self._guess_failure_target(tail):
+                    core.error(f"检测到构建失败目标: {failure_target}")
+                if tail:
+                    core.error("构建日志尾部:\n" + "\n".join(tail[-20:]))
+                raise subprocess.CalledProcessError(returncode, args)
 class OpenWrt(OpenWrtBase):
     def __init__(self, path: str, tag_branch: str | None = None) -> None:
         super().__init__(path)
@@ -135,18 +176,25 @@ class OpenWrt(OpenWrtBase):
             args.extend(["-j1", "V=s"])
         else:
             args.append("-j16")
-        logger.debug("运行命令：%s", " ".join(args))
-        subprocess.run(args, cwd=self.path, check=True)
+        returncode, tail = self._run_logged(args)
+        if returncode != 0:
+            if failure_target := self._guess_failure_target(tail):
+                core.error(f"下载阶段失败目标: {failure_target}")
+            raise subprocess.CalledProcessError(returncode, args)
 
     def download_source(self, taget: str = "download") -> None:
+        last_error = None
         for i in range(2):
             try:
                 self.make_download(debug=bool(i != 0), taget=taget)
-                break
+                return
             except Exception as e:
+                last_error = e
                 logger.error(f"下载源码失败: {e}")
                 if i < 1:
                     logger.info("尝试重新下载源码...")
+        if last_error:
+            raise last_error
 
     def get_diff_config(self) -> str:
         return subprocess.run([os.path.join(self.path, "scripts", "diffconfig.sh")], cwd=self.path, capture_output=True, text=True).stdout
@@ -182,9 +230,24 @@ class OpenWrt(OpenWrtBase):
         return package_config # type: ignore[]
 
     def check_package_dependencies(self) -> bool:
-        subprocess.run(['gmake', '-s', 'prepare-tmpinfo'], cwd=self.path)
-        if err := subprocess.run(['./scripts/package-metadata.pl', 'mk', 'tmp/.packageinfo'], cwd=self.path, capture_output=True, text=True).stderr:
-            core.error(f'检查到软件包依赖问题,这有可能会导致编译错误:\n{err}')
+        make_bin = shutil.which("gmake") or shutil.which("make")
+        if not make_bin:
+            msg = "未找到 make/gmake，无法执行软件包依赖检查"
+            raise FileNotFoundError(msg)
+
+        prepare = subprocess.run([make_bin, "-s", "prepare-tmpinfo"], cwd=self.path, capture_output=True, text=True)
+        if prepare.returncode != 0:
+            detail = prepare.stderr.strip() or prepare.stdout.strip()
+            core.error(f"生成 tmp/.packageinfo 失败, 这可能会导致后续编译错误:\n{detail}")
+            return False
+
+        metadata = subprocess.run(["./scripts/package-metadata.pl", "mk", "tmp/.packageinfo"],
+                                  cwd=self.path,
+                                  capture_output=True,
+                                  text=True)
+        if metadata.returncode != 0:
+            detail = metadata.stderr.strip() or metadata.stdout.strip()
+            core.error(f"检查到软件包依赖问题, 这有可能会导致编译错误:\n{detail}")
             return False
         return True
 

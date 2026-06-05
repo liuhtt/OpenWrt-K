@@ -10,32 +10,51 @@ from .logger import logger
 from .paths import paths
 
 
-def parse_config(path: str, prefixs: tuple[str,...]|list[str]) -> dict[str, str | list[str] | bool]:
+def _parse_value(content: str) -> str | list[str] | bool:
+    match content.lower():
+        case "true":
+            return True
+        case "false":
+            return False
+        case _:
+            if "," in content:
+                return [v.strip() for v in content.split(",")]
+            return content
+
+
+def _parse_config_lines(path: str,
+                        prefixs: tuple[str, ...] | list[str],
+                        *,
+                        strict: bool) -> dict[str, str | list[str] | bool]:
     if not os.path.isfile(path):
         msg = f"配置文件 {path} 不存在"
         raise ConfigParseError(msg)
 
-    config = {}
     with open(path, encoding="utf-8") as f:
-        for prefix in prefixs:
-            for line in f:
-                if line.startswith(prefix+"="):
-                    content = line.split("=")[1].strip()
-                    match content.lower():
-                        case "true":
-                            config[prefix] = True
-                        case "false":
-                            config[prefix] = False
-                        case _:
-                            if "," in content:
-                                config[prefix] = [v.strip() for v in content.split(",")]
-                            else:
-                                config[prefix] = content
-                    break
-            else:
+        lines = [line.strip() for line in f]
+
+    config: dict[str, str | list[str] | bool] = {}
+    for prefix in prefixs:
+        key = prefix + "="
+        for line in lines:
+            if line.startswith(key):
+                config[prefix] = _parse_value(line[len(key):].strip())
+                break
+        else:
+            if strict:
                 msg = f"无法在配置文件 {path} 中找到配置项{prefix}"
                 raise ConfigParseError(msg)
     return config
+
+
+def parse_config(path: str, prefixs: tuple[str, ...] | list[str]) -> dict[str, str | list[str] | bool]:
+    return _parse_config_lines(path, prefixs, strict=True)
+
+
+def parse_optional_config(path: str, prefixs: tuple[str, ...] | list[str]) -> dict[str, str | list[str] | bool]:
+    if not os.path.isfile(path):
+        return {}
+    return _parse_config_lines(path, prefixs, strict=False)
 
 
 def setup_env(full: bool = False, clear: bool = False) -> None:
@@ -43,6 +62,7 @@ def setup_env(full: bool = False, clear: bool = False) -> None:
         subprocess.run(["sudo", "-E", *list(args)], stdout=subprocess.PIPE)
     def apt(*args: str) -> None:
         subprocess.run(["sudo", "-E", "apt-get", "-y", *list(args)], stdout=subprocess.PIPE)
+    dist_upgrade = os.getenv("BUILD_HELPER_DIST_UPGRADE", "").strip().lower() in {"1", "true", "yes", "on"}
     logger.info("开始准备编译环境%s...", f"(full={full}, clear={clear})")
     # https://github.com/community/community/discussions/47863
     sudo("apt-mark", "hold", "grub-efi-amd64-signed")
@@ -59,9 +79,13 @@ def setup_env(full: bool = False, clear: bool = False) -> None:
             logger.exception("删除不需要的包时发生错误")
 
     if full:
-        # 3. 完整更新所有包
-        logger.info("完整更新所有包")
-        apt("dist-upgrade")
+        # 3. GitHub Actions runner 已预装大部分系统包，默认跳过 dist-upgrade
+        # 以避免镜像仓库波动把构建时间拖到数小时。
+        if dist_upgrade:
+            logger.info("完整更新所有包")
+            apt("dist-upgrade")
+        else:
+            logger.info("跳过完整系统升级，直接安装编译依赖")
         # 4.安装编译环境
         apt("install", "ack", "antlr3", "aria2", "asciidoc", "autoconf", "automake", "autopoint", "b43-fwcutter", "binutils",
             "bison", "build-essential", "bzip2", "ccache", "cmake", "cpio", "curl", "device-tree-compiler", "fastjar",
@@ -72,7 +96,7 @@ def setup_env(full: bool = False, clear: bool = False) -> None:
             "qemu-utils", "clang", "g++", "rsync", "unzip", "zlib1g-dev", "wget", "libfuse-dev")
     else:
         apt("install", "build-essential", "clang", "flex", "bison", "g++", "gawk", "gcc-multilib", "g++-multilib", "gettext",
-            "libncurses5-dev", "libssl-dev", "rsync", "swig", "unzip", "zlib1g-dev", "file", "wget")
+            "libncurses5-dev", "libssl-dev", "qemu-utils", "rsync", "swig", "unzip", "zlib1g-dev", "file", "wget")
     # 5.重载系统
     logger.info("重载系统")
     sudo("systemctl", "daemon-reload")
