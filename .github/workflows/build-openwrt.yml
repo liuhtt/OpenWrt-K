@@ -1,0 +1,217 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2025 沉默の金 <cmzj@cmzj.org>
+# SPDX-License-Identifier: MIT
+
+name: Build OpenWrt-K
+on:
+  workflow_dispatch:
+    inputs:
+      release_only:
+        description: '只复用已有 artifacts 执行最后发布'
+        required: false
+        default: false
+        type: boolean
+      artifact_run_id:
+        description: '复用 artifacts 的工作流运行 ID，只跑最后发布时必填'
+        required: false
+        type: string
+  schedule:
+    - cron: '0 4 * * *'
+  push:
+    paths:
+      - '.github/**'
+      - 'files/**'
+      - 'packages/**'
+      - 'build_helper/**'
+      - 'config/**'
+      - 'patches/**'
+
+      - '!.gitignore'
+      - '!LICENSE'
+      - '!README.md'
+      - '!img/**'
+
+permissions:
+  actions: write
+  contents: write
+  discussions: write
+env:
+  GITHUB_TOKEN: ${{ github.token }}
+  BUILD_HELPER_DEBUG: true
+  BUILD_HELPER_DIST_UPGRADE: false
+jobs:
+
+  prepare:
+    outputs:
+      matrix: ${{ steps.run.outputs.matrix }}
+    runs-on: ubuntu-22.04
+    name: 规划与准备
+    steps:
+
+      - uses: actions/checkout@v4
+      - name: 建立环境
+        uses: ./.github/action/prepare
+
+      - name: 准备
+        id: run
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_only == 'true' && 'matrix' || 'prepare' }}
+
+      - name: 上传
+        uses: ./../../../../../opt/OpenWrt-K/.github/action/upload
+
+  base-builds:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.release_only != 'true' }}
+    runs-on: ubuntu-22.04
+    needs: prepare
+    name: 构建工具链与内核(${{ matrix.name }})
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+
+      - uses: actions/checkout@v4
+      - name: 建立环境
+        uses: ./.github/action/prepare
+
+      - name: 准备编译
+        id: prepare
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build-prepare --config ${{ matrix.config }}
+
+      - name: 缓存toolchain
+        uses: actions/cache@v4
+        id: cache-toolchain
+        if: ${{ steps.prepare.outputs.use-cache }}
+        with:
+          path: |
+            ${{ steps.prepare.outputs.openwrt-path }}/staging_dir/host*
+            ${{ steps.prepare.outputs.openwrt-path }}/staging_dir/tool*
+          key: ${{ steps.prepare.outputs.toolchain-key }}
+
+      - name: 缓存ccache
+        uses: actions/cache@v4
+        if: ${{ steps.prepare.outputs.use-cache }}
+        with:
+          path: ${{ steps.prepare.outputs.openwrt-path }}/.ccache
+          key: ${{ steps.prepare.outputs.cache-key }}
+          restore-keys: |
+            ${{ steps.prepare.outputs.cache-restore-key }}
+
+      - name: 编译
+        id: build
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task base-builds --config ${{ matrix.config }}
+        env:
+          CACHE_HIT: ${{ steps.cache-toolchain.outputs.cache-hit }}
+
+      - name: 上传
+        if: success() || failure()
+        uses: ./../../../../../opt/OpenWrt-K/.github/action/upload
+
+  build-packages:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.release_only != 'true' }}
+    runs-on: ubuntu-22.04
+    needs: [prepare,base-builds]
+    name: 构建软件包(${{ matrix.name }})
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+
+      - uses: actions/checkout@v4
+      - name: 建立环境
+        uses: ./.github/action/prepare
+
+      - name: 准备编译
+        id: prepare
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build-prepare --config ${{ matrix.config }}
+
+      - name: 缓存ccache
+        uses: actions/cache@v4
+        if: ${{ steps.prepare.outputs.use-cache }}
+        with:
+          path: ${{ steps.prepare.outputs.openwrt-path }}/.ccache
+          key: ${{ steps.prepare.outputs.cache-key }}
+          restore-keys: |
+            ${{ steps.prepare.outputs.cache-restore-key }}
+
+      - name: 编译
+        id: build
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build_packages --config ${{ matrix.config }}
+
+      - name: 上传
+        if: success() || failure()
+        uses: ./../../../../../opt/OpenWrt-K/.github/action/upload
+
+  build-ImageBuilder:
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.release_only != 'true' }}
+    runs-on: ubuntu-22.04
+    needs: [prepare,base-builds]
+    name: 构建Image Builder与内核模块(${{ matrix.name }})
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    steps:
+
+      - uses: actions/checkout@v4
+      - name: 建立环境
+        uses: ./.github/action/prepare
+
+      - name: 准备编译
+        id: prepare
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build-prepare --config ${{ matrix.config }}
+
+      - name: 缓存ccache
+        uses: actions/cache@v4
+        if: ${{ steps.prepare.outputs.use-cache }}
+        with:
+          path: ${{ steps.prepare.outputs.openwrt-path }}/.ccache
+          key: ${{ steps.prepare.outputs.cache-key }}
+          restore-keys: |
+            ${{ steps.prepare.outputs.cache-restore-key }}
+
+      - name: 编译
+        id: build
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build_image_builder --config ${{ matrix.config }}
+
+      - name: 上传
+        if: success() || failure()
+        uses: ./../../../../../opt/OpenWrt-K/.github/action/upload
+
+  build-images-releases:
+    if: ${{ always() && needs.prepare.result == 'success' && ((github.event_name == 'workflow_dispatch' && github.event.inputs.release_only == 'true') || (needs.base-builds.result == 'success' && needs.build-ImageBuilder.result == 'success' && needs.build-packages.result == 'success')) }}
+    runs-on: ubuntu-22.04
+    needs: [prepare,base-builds,build-ImageBuilder,build-packages]
+    name: 构建镜像并发布(${{ matrix.name }})
+    strategy:
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    env:
+      BUILD_HELPER_ARTIFACT_RUN_ID: ${{ github.event.inputs.artifact_run_id }}
+    steps:
+
+      - uses: actions/checkout@v4
+      - name: 建立环境
+        uses: ./.github/action/prepare
+
+      - name: 校验复用构建参数
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.release_only == 'true' }}
+        run: |
+          test -n "${BUILD_HELPER_ARTIFACT_RUN_ID}" || {
+            echo "artifact_run_id 不能为空"
+            exit 1
+          }
+
+      - name: 准备构建
+        id: prepare
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build-prepare --config ${{ matrix.config }}
+
+      - name: 构建
+        id: build
+        working-directory: /opt/OpenWrt-K
+        run: python3 -m build_helper --task build_images_releases --config ${{ matrix.config }}
+
+      - name: 上传
+        if: success() || failure()
+        uses: ./../../../../../opt/OpenWrt-K/.github/action/upload
