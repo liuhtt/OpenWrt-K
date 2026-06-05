@@ -11,7 +11,22 @@ from .utils.logger import logger
 from .utils.network import request_get
 from .utils.openwrt import ImageBuilder, OpenWrt
 from .utils.paths import paths
-from .utils.repo import dl_artifact, get_current_commit, match_releases, new_release, repo, user_repo
+from .utils.repo import dl_artifact, get_artifact_run_id, get_current_commit, match_releases, new_release, repo, user_repo
+
+
+def read_kv_file(path: str) -> dict[str, str]:
+    values: dict[str, str] = {}
+    if not os.path.isfile(path):
+        return values
+
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key] = value.strip().strip("'\"")
+    return values
 
 
 def releases(cfg: dict) -> None:
@@ -31,10 +46,14 @@ def releases(cfg: dict) -> None:
 
     ib = ImageBuilder(os.path.join(paths.workdir, "ImageBuilder"))
     openwrt = OpenWrt(os.path.join(paths.workdir, "openwrt"))
+    k_info = read_kv_file(os.path.join(openwrt.files, "etc", "openwrt-k_info"))
+    build_commit = k_info.get("BUILD_COMMIT") or get_current_commit()
     target, subtarget = ib.get_target()
     if target is None or subtarget is None:
         msg = "无法获取target信息"
         raise RuntimeError(msg)
+    cfg["target"] = target
+    cfg["subtarget"] = subtarget
     firmware_path = str(shutil.copytree(os.path.join(ib.path, "bin", "targets", target, subtarget), os.path.join(paths.uploads, "firmware")))
 
     current_manifest = None
@@ -63,9 +82,10 @@ def releases(cfg: dict) -> None:
     current_packages = {line.split(" - ")[0]: line.split(" - ")[1] for line in current_manifest.splitlines()} if current_manifest else None
 
     context = Context()
+    artifact_run_id = get_artifact_run_id()
 
+    changelog = ""
     try:
-        changelog = ""
         if release := match_releases(cfg):
             packages = openwrt.get_packageinfos()
 
@@ -90,22 +110,32 @@ def releases(cfg: dict) -> None:
 
             changelog = "更新日志:\n" + changelog if changelog else "无任何软件包更新"
 
-        body = f"编译完成于: {datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}\n"
-        body += f"使用的配置: [{cfg['name']}](https://github.com/{user_repo}/tree/{get_current_commit()}/config/{cfg['name']})\n"
-        workflow_run = repo.get_workflow_run(context.run_id)
-        body += f"编译此固件的工作流运行: [{workflow_run.display_title}]({workflow_run.html_url}) ({workflow_run.event})\n"
-        if profiles:
-            if (version_number := profiles.get("version_number")) and (version_code := profiles.get('version_code')):
-                body += f"OpenWrt版本: {version_number} {version_code}\n"
-            if target := profiles.get("target"):
-                body += f"目标平台: {target}\n"
-        if current_packages and (kernel_ver := current_packages.get("kernel")):
-            body += f"内核版本: {kernel_ver}\n"
-
-        if changelog:
-            body += f"\n\n{changelog}"
-
-        new_release(cfg, assets, body)
-
     except Exception:
         logger.exception("获取旧版本信息并对照失败")
+
+    body = f"编译完成于: {datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}\n"
+    body += f"使用的配置: [{cfg['name']}](https://github.com/{user_repo}/tree/{build_commit}/config/{cfg['name']})\n"
+    workflow_run = repo.get_workflow_run(artifact_run_id)
+    body += f"编译此固件的工作流运行: [{workflow_run.display_title}]({workflow_run.html_url}) ({workflow_run.event})\n"
+    if artifact_run_id != context.run_id:
+        release_run = repo.get_workflow_run(context.run_id)
+        body += f"发布此固件的工作流运行: [{release_run.display_title}]({release_run.html_url}) ({release_run.event})\n"
+    if profiles:
+        if (version_number := profiles.get("version_number")) and (version_code := profiles.get('version_code')):
+            body += f"OpenWrt版本: {version_number} {version_code}\n"
+        if target_name := profiles.get("target"):
+            body += f"目标平台: {target_name}\n"
+    if current_packages and (kernel_ver := current_packages.get("kernel")):
+        body += f"内核版本: {kernel_ver}\n"
+
+    body += "\n<!--\n"
+    body += f"OPENWRT_K_ARTIFACT_RUN_ID={artifact_run_id}\n"
+    body += f"OPENWRT_K_BUILD_COMMIT={build_commit}\n"
+    if compile_start_time := k_info.get("COMPILE_START_TIME"):
+        body += f"OPENWRT_K_COMPILE_START_TIME={compile_start_time}\n"
+    body += "-->\n"
+
+    if changelog:
+        body += f"\n\n{changelog}"
+
+    new_release(cfg, assets, body, head_commit=build_commit)

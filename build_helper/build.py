@@ -13,9 +13,24 @@ from actions_toolkit.github import Context
 from .utils.logger import logger
 from .utils.openwrt import ImageBuilder, OpenWrt
 from .utils.paths import paths
-from .utils.repo import del_cache, dl_artifact, get_package_manager_info
+from .utils.repo import del_cache, dl_artifact
 from .utils.upload import uploader
 from .utils.utils import hash_dirs, setup_env
+
+
+def collect_package_files(src_dir: str, dst_dir: str, *, prefix: str | None = None) -> int:
+    os.makedirs(dst_dir, exist_ok=True)
+    count = 0
+    for root, _dirs, files in os.walk(src_dir):
+        for file in files:
+            if not file.endswith((".ipk", ".apk")):
+                continue
+            if prefix and not file.startswith(prefix):
+                continue
+            shutil.copy2(os.path.join(root, file), dst_dir)
+            logger.debug("复制 %s 到 %s", file, dst_dir)
+            count += 1
+    return count
 
 
 def get_cache_restore_key(openwrt: OpenWrt, cfg: dict) -> str:
@@ -41,7 +56,7 @@ def get_cache_restore_key(openwrt: OpenWrt, cfg: dict) -> str:
 def prepare(cfg: dict) -> None:
     context = Context()
     logger.debug("job: %s", context.job)
-    setup_env(context.job in ("build-packages", "build-ImageBuilder", "build-images-releases"),
+    setup_env(context.job in ("build-packages", "build-ImageBuilder"),
               context.job in ("build-packages", "build-ImageBuilder", "build-images-releases"))
 
     tmpdir = paths.get_tmpdir()
@@ -129,6 +144,9 @@ def base_builds(cfg: dict) -> None:
 
     logger.info("修改配置(设置编译所有kmod)...")
     openwrt.enable_kmods(cfg["compile"]["kmod_compile_exclude_list"])
+    if not openwrt.check_package_dependencies():
+        msg = f"{cfg['name']} 启用 kmod 后检测到软件包依赖错误"
+        raise RuntimeError(msg)
 
     if os.getenv("CACHE_HIT", "").lower().strip() != "true":
         logger.info("下载编译工具链所需源码...")
@@ -165,7 +183,6 @@ def base_builds(cfg: dict) -> None:
 
 def build_packages(cfg: dict) -> None:
     openwrt = OpenWrt(os.path.join(paths.workdir, "openwrt"))
-    package_info = get_package_manager_info(cfg)
 
     logger.info("下载编译所需源码...")
     openwrt.download_source()
@@ -178,12 +195,10 @@ def build_packages(cfg: dict) -> None:
 
     logger.info("整理软件包...")
     packages_path = os.path.join(paths.uploads, "packages")
-    os.makedirs(packages_path, exist_ok=True)
-    for root, _dirs, files in os.walk(os.path.join(openwrt.path, "bin")):
-        for file in files:
-            if file.endswith(package_info["package_ext"]):
-                shutil.copy2(os.path.join(root, file), packages_path)
-                logger.debug(f"复制 {file} 到 {packages_path}")
+    package_count = collect_package_files(os.path.join(openwrt.path, "bin"), packages_path)
+    if package_count == 0:
+        msg = f"{cfg['name']} 未找到任何可上传的软件包产物(.apk/.ipk)"
+        raise RuntimeError(msg)
     uploader.add(f"packages-{cfg['name']}", packages_path, retention_days=1)
 
     logger.info("删除旧缓存...")
@@ -191,7 +206,6 @@ def build_packages(cfg: dict) -> None:
 
 def build_image_builder(cfg: dict) -> None:
     openwrt = OpenWrt(os.path.join(paths.workdir, "openwrt"))
-    package_info = get_package_manager_info(cfg)
 
     logger.info("修改配置(设置编译所有kmod/取消编译其他软件包/取消生成镜像/)...")
     openwrt.enable_kmods(cfg["compile"]["kmod_compile_exclude_list"], only_kmods=True)
@@ -212,9 +226,21 @@ def build_image_builder(cfg: dict) -> None:
         f.write("CONFIG_IB_STANDALONE=y\n")
         # f.write("CONFIG_SDK=y\n")
     openwrt.make_defconfig()
+    if not openwrt.check_package_dependencies():
+        msg = f"{cfg['name']} Image Builder 配置存在软件包依赖错误"
+        raise RuntimeError(msg)
 
     logger.info("下载编译所需源码...")
     openwrt.download_source()
+
+    logger.info("应用dahdi-linux MAX宏冲突修复补丁...")
+    dahdi_patch_path = os.path.join(paths.openwrt_k, "patches", "dahdi-linux-fix-max-macro-conflict.patch")
+    if os.path.exists(dahdi_patch_path):
+        from .utils.utils import apply_patch
+        with open(dahdi_patch_path, encoding='utf-8') as f:
+            patch_content = f.read()
+        if not apply_patch(patch_content, openwrt.path):
+            logger.warning("应用dahdi-linux补丁失败,如果未安装dahdi-linux则可忽略此警告")
 
     logger.info("开始编译软件包...")
     openwrt.make("package/compile")
@@ -233,12 +259,10 @@ def build_image_builder(cfg: dict) -> None:
     logger.info("整理kmods...")
 
     kmods_path = os.path.join(paths.uploads, "kmods")
-    os.makedirs(kmods_path, exist_ok=True)
-    for root, _dirs, files in os.walk(os.path.join(openwrt.path, "bin")):
-        for file in files:
-            if file.startswith("kmod-") and file.endswith(package_info["package_ext"]):
-                shutil.copy2(os.path.join(root, file), kmods_path)
-                logger.debug(f"复制 {file} 到 {kmods_path}")
+    kmod_count = collect_package_files(os.path.join(openwrt.path, "bin"), kmods_path, prefix="kmod-")
+    if kmod_count == 0:
+        msg = f"{cfg['name']} 未找到任何可上传的内核模块产物(kmod-*.apk/.ipk)"
+        raise RuntimeError(msg)
     uploader.add(f"kmods-{cfg['name']}", kmods_path, retention_days=1)
 
     target, subtarget = openwrt.get_target()
