@@ -2,18 +2,18 @@
 # SPDX-License-Identifier: MIT
 
 name: Build OpenWrt-K
-on:
+于:
   workflow_dispatch:
     inputs:
       release_only:
         description: '只复用已有 artifacts 执行最后发布'
         required: false
-        default: false
-        type: boolean
+        默认: false
+        输入: boolean
       artifact_run_id:
         description: '复用 artifacts 的工作流运行 ID，只跑最后发布时必填'
         required: false
-        type: string
+        输入: string
   schedule:
     - cron: '0 4 * * *'
   push:
@@ -33,7 +33,7 @@ on:
 permissions:
   actions: write
   contents: write
-  discussions: write
+  讨论: write
 env:
   GITHUB_TOKEN: ${{ github.token }}
   BUILD_HELPER_DEBUG: true
@@ -48,15 +48,6 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-      
-      # 新增：切换GCC下载源为清华镜像
-      - name: 切换GCC下载源为清华镜像
-        run: |
-          # 替换GCC下载地址
-          sed -i 's|https://ftp.gnu.org/gnu/gcc|https://mirrors.tuna.tsinghua.edu.cn/gnu/gcc|g' toolchain/gcc/Makefile
-          sed -i 's|https://ftp.gnu.org/gnu/gdb|https://mirrors.tuna.tsinghua.edu.cn/gnu/gdb|g' toolchain/gdb/Makefile
-          echo "已切换下载源至清华镜像"
-          
       - name: 建立环境
         uses: ./.github/action/prepare
 
@@ -78,15 +69,6 @@ jobs:
     steps:
 
       - uses: actions/checkout@v4
-      
-      # 新增：切换GCC下载源为清华镜像（关键修改）
-      - name: 切换GCC下载源为清华镜像
-        run: |
-          # 替换GCC下载地址
-          sed -i 's|https://ftp.gnu.org/gnu/gcc|https://mirrors.tuna.tsinghua.edu.cn/gnu/gcc|g' toolchain/gcc/Makefile
-          sed -i 's|https://ftp.gnu.org/gnu/gdb|https://mirrors.tuna.tsinghua.edu.cn/gnu/gdb|g' toolchain/gdb/Makefile
-          echo "已切换下载源至清华镜像"
-          
       - name: 建立环境
         uses: ./.github/action/prepare
 
