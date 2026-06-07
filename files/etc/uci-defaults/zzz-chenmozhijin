@@ -9,8 +9,15 @@ has_package() {
 }
 
 uci set network.lan.ipaddr="10.0.0.1"
+uci set network.lan.netmask="255.0.0.0"
+uci set dhcp.lan.gateway="10.0.0.1"
+uci set dhcp.lan.start="100"      
+uci set dhcp.lan.limit="150"      
+uci set dhcp.lan.leasetime="12h"  
 uci commit network
+uci commit dhcp
 /etc/init.d/network restart
+/etc/init.d/dnsmasq restart
 sed -i "/^DISTRIB_DESCRIPTION='/s/'$/ Compiled by 沉默の金'/" /etc/openwrt_release
 [ -d "/etc/init.d" ] && chmod +x /etc/init.d/*
 [ -e "/usr/bin/AdGuardHome/AdGuardHome" ] && chmod 755 /usr/bin/AdGuardHome/AdGuardHome
