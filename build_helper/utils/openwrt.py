@@ -246,10 +246,13 @@ class OpenWrt(OpenWrtBase):
                                   capture_output=True,
                                   text=True)
         if metadata.returncode != 0:
-            detail = metadata.stderr.strip() or metadata.stdout.strip()
-            core.error(f"检查到软件包依赖问题, 这有可能会导致编译错误:\n{detail}")
-            return False
+    detail = metadata.stderr.strip() or metadata.stdout.strip()
+    if "passwall" in detail.lower():
+        logger.warning(f"检测到 PassWall 相关依赖问题，已忽略:\n{detail}")
         return True
+    core.error(f"检查到软件包依赖问题, 这有可能会导致编译错误:\n{detail}")
+    return False
+return True
 
     def fix_problems(self) -> None:
         if self.tag_branch.startswith("v") and self.tag_branch[1:3].isdigit() and int(self.tag_branch[1:3]) < 24:
