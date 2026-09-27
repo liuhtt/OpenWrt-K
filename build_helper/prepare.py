@@ -415,7 +415,7 @@ def prepare_cfg(config: dict[str, Any],
             passwall_patch_path = os.path.join(paths.openwrt_k, "patches", "passwall-fix-ipkg-instroot-network-sh.patch")
             with open(passwall_patch_path, encoding="utf-8") as f:
                 if not apply_patch(f.read(), path):
-                    msg = f"{cfg_name} 应用luci-app-passwall ImageBuilder环境兼容补丁失败"
+                    logger.warning(f"{cfg_name} 应用luci-app-passwall ImageBuilder环境兼容补丁失败，已忽略")
                     raise RuntimeError(msg)
         if pkg_name == "hexsen929":
             remove_duplicate_feed_packages(path, openwrt.path, config["openwrt"])
