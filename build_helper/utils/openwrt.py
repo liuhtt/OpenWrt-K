@@ -245,10 +245,6 @@ class OpenWrt(OpenWrtBase):
                                   cwd=self.path,
                                   capture_output=True,
                                   text=True)
-                metadata = subprocess.run(["./scripts/package-metadata.pl", "mk", "tmp/.packageinfo"],
-                                  cwd=self.path,
-                                  capture_output=True,
-                                  text=True)
         if metadata.returncode != 0:
             detail = metadata.stderr.strip() or metadata.stdout.strip()
             if "passwall" in detail.lower():
