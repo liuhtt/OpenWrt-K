@@ -186,7 +186,19 @@ def build_packages(cfg: dict) -> None:
 
     logger.info("下载编译所需源码...")
     openwrt.download_source()
-
+    logger.info("锁定 xray-core 版本为 26.7.28...")
+    xray_mk = os.path.join(openwrt.path, "package/cmzj_packages/openwrt-passwall-packages/xray-core/Makefile")
+    if os.path.exists(xray_mk):
+        import re
+        with open(xray_mk, encoding="utf-8") as f:
+            content = f.read()
+        content = re.sub(r"PKG_VERSION:=26\.9\.[0-9]+", "PKG_VERSION:=26.7.28", content)
+        content = re.sub(r"PKG_HASH:=.*", "PKG_HASH:=a9afe86349c7bd3e6cae60125e62a5ada09d102e1a2760623e77c24a84dbfb46", content)
+        with open(xray_mk, "w", encoding="utf-8") as f:
+            f.write(content)
+        logger.info("xray-core 已锁定为 26.7.28")
+    else:
+        logger.warning("未找到 xray-core Makefile: %s", xray_mk)
     logger.info("开始编译软件包...")
     openwrt.make("package/compile")
 
